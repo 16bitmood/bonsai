@@ -1,7 +1,8 @@
+use std::collections::HashMap;
+
 use crate::common::Core;
 use crate::lexer::Tk;
 use crate::value::Value;
-
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Expr {
@@ -108,19 +109,42 @@ impl LowerParser {
     }
 }
 
+pub struct ParserContext<'a> {
+    infix_operators: &'a Vec<String>,
+    infix_macros: &'a HashMap<String, MacroRuleInfix>,
+    prefix_macros: &'a HashMap<String, MacroRulePrefix>,
+}
+
+impl ParserContext<'_> {
+    pub fn new<'a>(
+        infix_operators: &'a Vec<String>,
+        infix_macros: &'a HashMap<String, MacroRuleInfix>,
+        prefix_macros: &'a HashMap<String, MacroRulePrefix>,
+    ) -> ParserContext<'a> {
+        ParserContext {
+            infix_operators,
+            infix_macros,
+            prefix_macros,
+        }
+    }
+}
+
+pub type MacroRulePrefix = Box<dyn Fn(&ParserContext, &Vec<Expr>) -> Core>;
+pub type MacroRuleInfix = Box<dyn Fn(usize, &ParserContext, &Vec<Expr>, &Vec<Expr>) -> Core>;
+
 pub struct HigherParser<'a> {
     fexpr: Vec<Expr>,
     current_idx: usize,
-    infix_operators: &'a Vec<String>,
+    ctx: &'a ParserContext<'a>,
 }
 
 // TODO: Unnecessarily Complex?
 impl HigherParser<'_> {
-    pub fn new(fexpr: Vec<Expr>, ops: &Vec<String>) -> HigherParser {
+    pub fn new<'a>(fexpr: Vec<Expr>, ctx: &'a ParserContext) -> HigherParser<'a> {
         HigherParser {
             fexpr: fexpr,
             current_idx: 0,
-            infix_operators: ops,
+            ctx: ctx,
         }
     }
 
@@ -134,70 +158,86 @@ impl HigherParser<'_> {
 
     fn check_infix(&self, op_id: usize) -> bool {
         if let Some(Expr::NameInfix(y)) = self.peek() {
-            &self.infix_operators[op_id] == y
+            &self.ctx.infix_operators[op_id] == y
         } else {
             false
         }
     }
 
+    fn check_infix_till_end(&self, op_id: usize) -> bool {
+        for i in self.current_idx..self.fexpr.len() {
+            if let Expr::NameInfix(y) = &self.fexpr[i] {
+                if &self.ctx.infix_operators[op_id] == y {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     pub fn parse(&mut self) -> Core {
-        self.parse_infix(self.infix_operators.len() - 1)
+        self.parse_infix(self.ctx.infix_operators.len() - 1)
+    }
+
+    fn take_till_infix(&mut self, op_id: usize) -> Vec<Expr> {
+        let mut xs = vec![];
+        while !self.check_infix(op_id) {
+            if self.peek() == None {
+                return xs;
+            }
+            xs.push(self.peek().unwrap().clone());
+            self.advance();
+        }
+        xs
     }
 
     fn parse_infix(&mut self, op_id: usize) -> Core {
         if op_id == 0 {
             return self.parse_prefix();
-        } // Else check if macro, then apply rules.
+        } else if self
+            .ctx
+            .infix_macros
+            .contains_key(&self.ctx.infix_operators[op_id])
+            && self.check_infix_till_end(op_id)
+        {
+            let flat_left = self.take_till_infix(op_id);
+            if self.check_infix(op_id) {
+                self.advance();
+                let flat_right = self.take_till_infix(op_id);
+                return self
+                    .ctx
+                    .infix_macros
+                    .get(&self.ctx.infix_operators[op_id])
+                    .unwrap()(op_id, self.ctx, &flat_left, &flat_right);
+            } else {
+                todo!()
+            }
+        }
 
         let mut left = self.parse_infix(op_id - 1);
         while self.check_infix(op_id) {
             self.advance();
 
-
             let right = self.parse_infix(op_id - 1);
 
-            if self.infix_operators[op_id].as_str() == "=" {
-                if let Core::Get(x) = left {
-                    left = Core::Let(
-                        x,
-                        Box::new(right)
-                    )
-                } else {
-                    todo!("Invalid set");
-                }
-            } else if self.infix_operators[op_id].as_str() == "->" {
-                if let Core::Get(x) = left {
-                    left = Core::Lambda(
-                        vec![x],
-                        Box::new(right)
-                    )
-                } else if let Core::Call(x, args) = left {
-                    let mut args = args.clone();
-                    args.insert(0 , *x);
-                    left = Core::Lambda(
-                        args.iter().map(|x| {
-                            if let Core::Get(y) = x {
-                                y.clone()
-                            } else {
-                                todo!()
-                            }
-                        }).collect(),
-                        Box::new(Core::Block(vec![right]))
-                    )
-                } else {
-                    todo!("Invalid Lambda")
-                }
-            } else {
-                left = Core::Call(
-                    Box::new(Core::Get(self.infix_operators[op_id].clone())),
-                    vec![left, right],
-                );
-            }
+            left = Core::Call(
+                Box::new(Core::Get(self.ctx.infix_operators[op_id].clone())),
+                vec![left, right],
+            );
         }
         left
     }
 
     pub fn parse_prefix(&mut self) -> Core {
+        if let Some(Expr::Name(x)) = self.peek() {
+            if self.ctx.prefix_macros.contains_key(x) {
+                return self.ctx.prefix_macros.get(x).unwrap()(
+                    self.ctx,
+                    &self.fexpr.iter().skip(1).map(|x| x.clone()).collect(),
+                );
+            }
+        }
+
         let mut fcall = vec![];
         while let Some(x) = self.peek() {
             let x = x.clone();
@@ -206,12 +246,22 @@ impl HigherParser<'_> {
                 Expr::LitFloat(f) => Core::Lit(Value::Float(f)),
                 Expr::LitInt(i) => Core::Lit(Value::Int(i)),
 
-                Expr::FExpr(xs) => HigherParser::new(xs, self.infix_operators).parse(),
+                Expr::FExpr(xs) => HigherParser::new(
+                    xs,
+                    self.ctx
+                )
+                .parse(),
 
                 Expr::Block(xs) => {
                     let mut block = vec![];
                     for x in xs {
-                        block.push(HigherParser::new(vec![x], self.infix_operators).parse());
+                        block.push(
+                            HigherParser::new(
+                            vec![x],
+                            self.ctx
+                        )
+                            .parse(),
+                        );
                     }
                     Core::Block(block)
                 }

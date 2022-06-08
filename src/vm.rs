@@ -239,7 +239,6 @@ impl VM<'_> {
                 }
 
                 Op::Call => {
-
                     let nargs = self.read_byte(ip + 1) as usize;
                     let top = self.stack.pop().unwrap();
 
@@ -250,19 +249,20 @@ impl VM<'_> {
                     match top {
                         Value::Closure(f) => {
                             self.current_frame += 1;
-                            self.frames.push(CallFrame::new(f, self.stack.len() - nargs));
-                        },
+                            self.frames
+                                .push(CallFrame::new(f, self.stack.len() - nargs));
+                        }
 
                         Value::Native(name) => {
                             let result = self.ffi.call(&name, &self.stack.pop().unwrap());
                             self.stack.push(result);
-                        },
+                        }
                         _ => {
                             // println!("top: {:?}", top);
                             // println!("{:?}", self.stack);
                             // println!("{:?}", self.get_ip());
                             todo!("runtime error");
-                        },
+                        }
                     }
                 }
 

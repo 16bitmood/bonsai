@@ -13,7 +13,6 @@ impl Compiler {
     pub fn new() -> Compiler {
         Compiler {
             function: Function::new(0),
-            // chunk: Chunk::new(vec![], vec![]),
             locals: vec![],
             scope_depth: 0,
             continues: vec![],
@@ -28,8 +27,8 @@ impl Compiler {
                 "-" => Op::Subtract,
                 "*" => Op::Multiply,
                 "/" => Op::Divide,
-                _ => return None
-            })
+                _ => return None,
+            });
         }
         None
     }
