@@ -9,6 +9,7 @@ pub enum Op {
     LoadTrue,
 
     Negate,
+    IsEqual,
     Add,
     Subtract,
     Multiply,
@@ -73,6 +74,7 @@ impl Chunk {
             Op::LoadTrue => ("load_true".to_string(), 1),
 
             Op::Negate => ("negate".to_string(), 1),
+            Op::IsEqual => ("is_equal".to_string(), 1),
             Op::Add => ("add".to_string(), 1),
             Op::Subtract => ("subtract".to_string(), 1),
             Op::Multiply => ("multiply".to_string(), 1),

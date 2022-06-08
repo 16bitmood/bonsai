@@ -23,6 +23,7 @@ impl Compiler {
     fn arithmetic_op(&self, x: &Core) -> Option<Op> {
         if let Core::Get(x) = x {
             return Some(match x.as_str() {
+                "==" => Op::IsEqual,
                 "+" => Op::Add,
                 "-" => Op::Subtract,
                 "*" => Op::Multiply,
@@ -248,7 +249,6 @@ impl Compiler {
                 let k = self.breaks.len() - 1;
                 self.breaks[k].push(break_jump_idx);
             }
-            _ => todo!("Not implemented yet"),
         }
     }
 

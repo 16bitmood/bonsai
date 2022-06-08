@@ -124,6 +124,18 @@ impl VM<'_> {
                     self.offset_ip(1);
                 }
 
+                Op::IsEqual => {
+                    let x = self.stack.pop().unwrap();
+                    let y = self.stack.pop().unwrap();
+                    match (x, y) {
+                        (Value::Int(x), Value::Int(y)) => self.stack.push(Value::Bool(x == y)),
+                        (Value::Float(x), Value::Float(y)) => self.stack.push(Value::Bool(x == y)),
+                        (Value::Bool(x), Value::Bool(y)) => self.stack.push(Value::Bool(x == y)),
+                        (_, _) => self.stack.push(Value::Bool(false)),
+                    }
+                    self.offset_ip(1);
+                }
+
                 Op::Add => {
                     let y = self.stack.pop().unwrap();
                     let x = self.stack.pop().unwrap();

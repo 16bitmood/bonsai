@@ -78,6 +78,7 @@ fn main() {
         "*".to_string(),
         "-".to_string(),
         "+".to_string(),
+        "==".to_string(),
         "->".to_string(),
         "=".to_string(),
     ];
@@ -163,4 +164,8 @@ fn main() {
     let ctx = ParserContext::new(&infix_ops, &infix_macros, &prefix_macros);
 
     repl(ctx, ffi);
+
+    // Sum till n
+    // let s = n -> if (n == 0) then (return 0) else (return (n + (s (n - 1)))); print (s 20);
+    
 }
