@@ -108,6 +108,11 @@ impl VM<'_> {
                     self.offset_ip(1);
                 }
 
+                Op::LoadTrue => {
+                    self.stack.push(Value::Bool(true));
+                    self.offset_ip(1);
+                }
+
                 Op::Negate => {
                     let x = self.stack.pop().unwrap();
                     match x {

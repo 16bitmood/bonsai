@@ -37,9 +37,7 @@ fn repl(ctx: ParserContext, ffi: FFI) {
 
         let mut higher_parser = HigherParser::new(
             vec![expr],
-            &ctx, // &infix_ops,
-                  // &prefix_macros,
-                  // &infix_macros
+            &ctx,
         );
         let core_expr = higher_parser.parse();
         println!("High Parse: {:?}", core_expr);
@@ -87,6 +85,43 @@ fn main() {
     let mut prefix_macros = HashMap::new();
     let mut infix_macros = HashMap::new();
 
+    // Prefix Macros
+    let prefix_return_macro: MacroRulePrefix =
+        Box::new(|ctx, expr| Core::Return(Box::new(HigherParser::new(expr.clone(), ctx).parse())));
+
+    let prefix_break_macro: MacroRulePrefix =
+        Box::new(|_, _| Core::Break);
+
+    let prefix_continue_macro: MacroRulePrefix =
+        Box::new(|_, _| Core::Continue);
+
+    let prefix_if_macro: MacroRulePrefix =
+        // If cond then on_true;
+        // If cond then on_true else on_true;
+        Box::new(|ctx, body| {
+            if body.len() == 3 || body.len() == 5 {
+                if let Expr::Name(n) = &body[1] {
+                    let cond = &body[0];
+                    assert_eq!(n, &"then".to_string());
+                    let on_true = &body[2];
+                    let mut on_false = &Expr::LitInt(0);
+                    if body.len() == 5 {
+                        if let Expr::Name(n) = &body[3] {
+                            assert_eq!(n, &"else".to_string());
+                            on_false = &body[4];
+                        }
+                    }
+                    return Core::If(
+                        Box::new(HigherParser::new(vec![cond.clone()], ctx).parse()),
+                        Box::new(HigherParser::new(vec![on_true.clone()], ctx).parse()),
+                        Box::new(HigherParser::new(vec![on_false.clone()], ctx).parse()),
+                    )
+                }
+            }
+            todo!()
+        });
+
+    // Infix Macros
     let infix_lambda_macro: MacroRuleInfix = Box::new(|op, ctx, args, body| {
         Core::Lambda(
             args.iter()
@@ -117,13 +152,13 @@ fn main() {
         }
     });
 
-    let prefix_return_macro: MacroRulePrefix =
-        Box::new(|ctx, expr| Core::Return(Box::new(HigherParser::new(expr.clone(), ctx).parse())));
+    prefix_macros.insert("return".to_string(), prefix_return_macro);
+    prefix_macros.insert("continue".to_string(), prefix_continue_macro);
+    prefix_macros.insert("break".to_string(), prefix_break_macro);
+    prefix_macros.insert("if".to_string(), prefix_if_macro);
 
     infix_macros.insert("->".to_string(), infix_lambda_macro);
     infix_macros.insert("=".to_string(), infix_assign_macro);
-
-    prefix_macros.insert("return".to_string(), prefix_return_macro);
 
     let ctx = ParserContext::new(&infix_ops, &infix_macros, &prefix_macros);
 

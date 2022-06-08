@@ -6,6 +6,7 @@ pub enum Op {
     // 1-byte Instructions
     Return,
     Pop,
+    LoadTrue,
 
     Negate,
     Add,
@@ -69,6 +70,7 @@ impl Chunk {
             // 1-byte Instructions
             Op::Return => ("return".to_string(), 1),
             Op::Pop => ("pop".to_string(), 1),
+            Op::LoadTrue => ("load_true".to_string(), 1),
 
             Op::Negate => ("negate".to_string(), 1),
             Op::Add => ("add".to_string(), 1),
@@ -139,7 +141,6 @@ impl Chunk {
 
 #[derive(Clone, Debug)]
 pub enum Core {
-    Print,
     // Literal
     Lit(Value),
 
