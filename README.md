@@ -1,7 +1,7 @@
 # Bonsai
 > Note:
 - This is very WIP.
-- Nothing is not finalized.
+- Nothing is finalized yet.
 
 A small interpreted programming language.
 
