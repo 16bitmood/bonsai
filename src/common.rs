@@ -23,10 +23,16 @@ pub enum Op {
     GetLocal,
     Call,
 
+    SetUpvalue,
+    GetUpvalue,
+
     // 3-byte Instructions
-    RelJump,
+    Jump,
     AbsJump,
     JumpIfFalse,
+
+    // Vairable Length Instruction
+    MakeClosure,
 }
 
 impl Op {
@@ -66,10 +72,14 @@ impl Chunk {
         self.constants.len() - 1
     }
 
-    fn disassemble_at(&self, i: usize) -> (String, usize) {
+    pub fn disassemble_at(&self, i: usize) -> (String, usize) {
         match Op::from_u8(self.code[i]) {
             // 1-byte Instructions
             Op::Return => ("return".to_string(), 1),
+            Op::MakeClosure => {
+                let idx = self.code[i + 1];
+                (format!("make_closure {:#04x}", idx), 2)
+            }
             Op::Pop => ("pop".to_string(), 1),
             Op::LoadTrue => ("load_true".to_string(), 1),
 
@@ -112,10 +122,13 @@ impl Chunk {
                 (format!("call {:#04x}", n_args), 2)
             }
 
+            Op::SetUpvalue => ("set_upvalue".to_string(), 2),
+            Op::GetUpvalue => ("get_upvalue".to_string(), 2),
+
             // 3-byte Instructions
-            Op::RelJump => {
+            Op::Jump => {
                 let offset = self.read_byte_double(i + 1);
-                (format!("rel_jump {:#04x}", offset), 3)
+                (format!("jump {:#04x}", offset), 3)
             }
 
             Op::AbsJump => {

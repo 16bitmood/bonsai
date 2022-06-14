@@ -246,22 +246,12 @@ impl HigherParser<'_> {
                 Expr::LitFloat(f) => Core::Lit(Value::Float(f)),
                 Expr::LitInt(i) => Core::Lit(Value::Int(i)),
 
-                Expr::FExpr(xs) => HigherParser::new(
-                    xs,
-                    self.ctx
-                )
-                .parse(),
+                Expr::FExpr(xs) => HigherParser::new(xs, self.ctx).parse(),
 
                 Expr::Block(xs) => {
                     let mut block = vec![];
                     for x in xs {
-                        block.push(
-                            HigherParser::new(
-                            vec![x],
-                            self.ctx
-                        )
-                            .parse(),
-                        );
+                        block.push(HigherParser::new(vec![x], self.ctx).parse());
                     }
                     Core::Block(block)
                 }

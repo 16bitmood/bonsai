@@ -17,16 +17,18 @@ use crate::native::FFI;
 use crate::parser::{
     Expr, HigherParser, LowerParser, MacroRuleInfix, MacroRulePrefix, ParserContext,
 };
-use crate::value::Value;
+use crate::value::{Closure, Function, Value};
 use crate::vm::VM;
 
 fn repl(ctx: ParserContext, ffi: FFI) {
     let stdin = io::stdin();
-    let mut iter = stdin.lock().lines();
     loop {
-        print!(">> ");
-        io::stdout().flush().unwrap();
-        let line = iter.next().unwrap().unwrap();
+        let line = {
+            print!(">> ");
+            io::stdout().flush().unwrap();
+            let mut iter = stdin.lock().lines();
+            iter.next().unwrap().unwrap()
+        };
 
         let ts = lex(line);
         println!("Tokens: {:?}", ts);
@@ -35,21 +37,16 @@ fn repl(ctx: ParserContext, ffi: FFI) {
         let expr = lower_parser.parse();
         println!("Low Parse: {:?}", expr);
 
-        let mut higher_parser = HigherParser::new(
-            vec![expr],
-            &ctx,
-        );
+        let mut higher_parser = HigherParser::new(vec![expr], &ctx);
         let core_expr = higher_parser.parse();
         println!("High Parse: {:?}", core_expr);
 
         let mut cc = Compiler::new();
         cc.compile(&core_expr);
-        cc.done();
+        let f = cc.ctxs[0].function.clone();
+        f.chunk.disassemble();
 
-        let function = cc.function.clone();
-        function.chunk.disassemble();
-
-        let mut vm = VM::new(function, &ffi);
+        let mut vm = VM::new(Closure::new(f), &ffi);
         vm.run();
     }
 }
@@ -90,11 +87,9 @@ fn main() {
     let prefix_return_macro: MacroRulePrefix =
         Box::new(|ctx, expr| Core::Return(Box::new(HigherParser::new(expr.clone(), ctx).parse())));
 
-    let prefix_break_macro: MacroRulePrefix =
-        Box::new(|_, _| Core::Break);
+    let prefix_break_macro: MacroRulePrefix = Box::new(|_, _| Core::Break);
 
-    let prefix_continue_macro: MacroRulePrefix =
-        Box::new(|_, _| Core::Continue);
+    let prefix_continue_macro: MacroRulePrefix = Box::new(|_, _| Core::Continue);
 
     let prefix_if_macro: MacroRulePrefix =
         // If cond then on_true;
@@ -121,6 +116,9 @@ fn main() {
             }
             todo!()
         });
+
+    let prefix_loop_macro: MacroRulePrefix =
+        Box::new(|ctx, body| Core::Loop(Box::new(HigherParser::new(body.clone(), ctx).parse())));
 
     // Infix Macros
     let infix_lambda_macro: MacroRuleInfix = Box::new(|op, ctx, args, body| {
@@ -157,6 +155,7 @@ fn main() {
     prefix_macros.insert("continue".to_string(), prefix_continue_macro);
     prefix_macros.insert("break".to_string(), prefix_break_macro);
     prefix_macros.insert("if".to_string(), prefix_if_macro);
+    prefix_macros.insert("loop".to_string(), prefix_loop_macro);
 
     infix_macros.insert("->".to_string(), infix_lambda_macro);
     infix_macros.insert("=".to_string(), infix_assign_macro);
@@ -166,6 +165,8 @@ fn main() {
     repl(ctx, ffi);
 
     // Sum till n
+    // let f = n -> {let s = 0; loop {if (n == 0) then (return s) else {s = s + n; n = n - 1}}}; print (f 20);
     // let s = n -> if (n == 0) then (return 0) else (return (n + (s (n - 1)))); print (s 20);
-    
+    // Factorial
+    // let f = n -> if (n == 0) then (return 1) else (return (n * (f (n - 1)))); print (f 20);
 }

@@ -1,22 +1,24 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use crate::common::Op;
 use crate::native::FFI;
-use crate::value::{Function, Value};
+use crate::value::{Closure, HeapedData, Value};
 
 #[derive(Clone)]
 pub struct CallFrame {
     ip: usize,
-    function: Function,
+    closure: Closure,
     stack_start: usize,
 }
 
 impl CallFrame {
-    pub fn new(f: Function, off: usize) -> CallFrame {
+    pub fn new(closure: Closure, stack_start: usize) -> CallFrame {
         CallFrame {
             ip: 0,
-            function: f,
-            stack_start: off,
+            closure,
+            stack_start,
         }
     }
 }
@@ -30,15 +32,14 @@ pub struct VM<'a> {
     frames: Vec<CallFrame>,
     current_frame: usize,
     ffi: &'a FFI,
-    // native_functions: HashMap<String, Box<T>>,
     stack: Vec<Value>,
     globals: HashMap<String, Value>,
 }
 
 impl VM<'_> {
-    pub fn new(f: Function, natives: &FFI) -> VM {
+    pub fn new(c: Closure, natives: &FFI) -> VM {
         // TODO: Make call-stack static.
-        let initial_frame: CallFrame = CallFrame::new(f, 0);
+        let initial_frame: CallFrame = CallFrame::new(c, 0);
         let vm = VM {
             frames: vec![initial_frame],
             ffi: natives,
@@ -71,12 +72,13 @@ impl VM<'_> {
 
     #[inline]
     fn read_byte(&self, ip: usize) -> u8 {
-        self.frames[self.current_frame].function.chunk.code[ip]
+        self.frames[self.current_frame].closure.function.chunk.code[ip]
     }
 
     #[inline]
     fn read_byte_double(&self, ip: usize) -> usize {
         self.frames[self.current_frame]
+            .closure
             .function
             .chunk
             .read_byte_double(ip)
@@ -84,20 +86,66 @@ impl VM<'_> {
 
     #[inline]
     fn get_constant(&self, idx: usize) -> Value {
-        self.frames[self.current_frame].function.chunk.constants[idx].clone()
+        self.frames[self.current_frame]
+            .closure
+            .function
+            .chunk
+            .constants[idx]
+            .clone()
+    }
+
+    fn capture_upvalue(&mut self, idx: usize) -> HeapedData {
+        let val = self.stack[idx].clone();
+        match &self.stack[idx] {
+            Value::Closure(c) => Rc::new(RefCell::new(Value::Closure(Closure {
+                function: c.function.clone(),
+                upvalues: Rc::clone(&c.upvalues),
+            }))),
+            Value::HeapedData(x) => Rc::clone(&x),
+            _ => {
+                let val_ref = Rc::new(RefCell::new(val));
+                Rc::clone(&val_ref)
+            }
+        }
     }
 
     pub fn run(&mut self) -> VMResult {
-        loop {
+        while self.get_ip()
+            < self.frames[self.current_frame]
+                .closure
+                .function
+                .chunk
+                .code
+                .len()
+        {
             let ip = self.get_ip();
+            { // Debug Info
+                println!("-");
+                print!("Stack {}: [", self.frames[self.current_frame].stack_start);
+                for x in self.stack.iter() {
+                    print!("{} ", x)
+                }
+                println!(" ]");
+                println!(
+                    "{}",
+                    self.frames[self.current_frame]
+                        .closure
+                        .function
+                        .chunk
+                        .disassemble_at(ip)
+                        .0
+                );
+            }
+
             match Op::from_u8(self.read_byte(ip)) {
                 // 1-byte Instructions
                 Op::Return => {
                     let result = self.stack.pop().unwrap();
-                    self.frames.pop();
+                    let drain_from = self.frames.pop().unwrap().stack_start;
                     if self.frames.len() == 0 {
                         return VMResult::Ok;
                     }
+                    self.stack.drain(drain_from..self.stack.len());
 
                     self.current_frame -= 1;
                     self.stack.push(result);
@@ -206,6 +254,22 @@ impl VM<'_> {
                     self.offset_ip(1);
                 }
 
+                Op::SetUpvalue => {
+                    let idx = self.read_byte(ip + 1) as usize;
+                    self.offset_ip(2);
+                    let upvalues = self.frames[self.current_frame].closure.upvalues.borrow();
+                    let mut up_ref = upvalues[idx].borrow_mut();
+                    *up_ref = self.stack.last().unwrap().clone();
+                }
+
+                Op::GetUpvalue => {
+                    let idx = self.read_byte(ip + 1) as usize;
+                    self.stack.push(Value::HeapedData(Rc::clone(
+                        &self.frames[self.current_frame].closure.upvalues.borrow()[idx],
+                    )));
+                    self.offset_ip(2);
+                }
+
                 // 2-byte Instructions
                 Op::LoadConstant => {
                     let idx = self.read_byte(ip + 1);
@@ -244,7 +308,7 @@ impl VM<'_> {
                 Op::SetLocal => {
                     let idx = self.read_byte(ip + 1) as usize;
                     let ss = self.stack_start();
-                    self.stack[ss + idx] = self.stack.pop().unwrap();
+                    self.stack[ss + idx] = self.stack.pop().unwrap().clone();
                     self.offset_ip(2);
                 }
 
@@ -257,27 +321,28 @@ impl VM<'_> {
 
                 Op::Call => {
                     let nargs = self.read_byte(ip + 1) as usize;
-                    let top = self.stack.pop().unwrap();
+                    let mut f = self.stack.pop().unwrap();
+
+                    if let Value::HeapedData(x) = f {
+                        f = x.borrow().clone();
+                    }
 
                     self.offset_ip(2);
-
-                    println!("Calling {} with stack: {:?}", top, self.stack);
-
-                    match top {
-                        Value::Closure(f) => {
+                    match f {
+                        Value::Closure(c) => {
                             self.current_frame += 1;
                             self.frames
-                                .push(CallFrame::new(f, self.stack.len() - nargs));
+                                .push(CallFrame::new(c, self.stack.len() - nargs));
+
+                            // TODO: Check
                         }
 
                         Value::Native(name) => {
                             let result = self.ffi.call(&name, &self.stack.pop().unwrap());
                             self.stack.push(result);
                         }
+
                         _ => {
-                            // println!("top: {:?}", top);
-                            // println!("{:?}", self.stack);
-                            // println!("{:?}", self.get_ip());
                             todo!("runtime error");
                         }
                     }
@@ -286,14 +351,14 @@ impl VM<'_> {
                 // 3-byte Instructions
                 Op::JumpIfFalse => {
                     let offset = self.read_byte_double(ip + 1);
-                    if self.stack.last().unwrap().is_falsey() {
+                    if self.stack.pop().unwrap().is_falsey() {
                         self.offset_ip(offset);
                     } else {
                         self.offset_ip(3);
                     }
                 }
 
-                Op::RelJump => {
+                Op::Jump => {
                     let offset = self.read_byte_double(ip + 1);
                     self.offset_ip(offset);
                 }
@@ -302,7 +367,39 @@ impl VM<'_> {
                     let offset = self.read_byte_double(ip + 1);
                     self.set_ip(offset);
                 }
+
+                Op::MakeClosure => {
+                    let idx = self.read_byte(ip + 1);
+                    if let Value::Function(f) = self.get_constant(idx as usize) {
+                        let upvalue_count = f.upvalue_count;
+                        let closure = Closure::new(f);
+                        let upvalues = Rc::clone(&closure.upvalues);
+                        self.stack.push(Value::Closure(closure));
+                        self.offset_ip(2);
+
+                        for _ in 0..upvalue_count {
+                            let lip = self.get_ip();
+                            let is_local = self.read_byte(lip);
+                            let idx = self.read_byte(lip + 1) as usize;
+                            // TODO: Upvalues are cloned
+                            if is_local != 0 {
+                                upvalues.borrow_mut().push(self.capture_upvalue(
+                                    self.frames[self.current_frame].stack_start + idx,
+                                ));
+                            } else {
+                                upvalues.borrow_mut().push(Rc::clone(
+                                    &self.frames[self.current_frame].closure.upvalues.borrow()[idx],
+                                ));
+                            }
+                            self.offset_ip(2);
+                        }
+                        // self.stack.push(Value::Closure(closure));
+                    } else {
+                        todo!("Can only make functions into closure")
+                    }
+                }
             }
         }
+        VMResult::Ok
     }
 }
