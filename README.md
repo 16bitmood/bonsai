@@ -49,19 +49,25 @@ let x = 1
 type Nat = x -> x:Int && x > 0
 
 let factorial n = {
-    let f = match n {
+    let f n = match n {
         0 -> 1
         _ -> n * factorial (n - 1)
     }
 
     match n {
-        n : Nat - > f n
+        n : Nat -> f n
         _ -> throw (error "Natural number requried!")
     }
 }
 ```
 
 - A simple program using Server(Actor) based concurrency model.
+Some explanation:
+- `.abc` is an ADT.
+- `sender` and `self` refer to unique pid of the sending actor and the current actor.
+- We have ml style function call syntax here, i.e., `f a b c` means `f(a,b,c)`.
+- Sending a message to an actor `a` is just a function call, like: `a .method`.
+
 ```haskell
 server Downloader {
   .init -> {
