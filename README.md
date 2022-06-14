@@ -1,10 +1,48 @@
 # Bonsai
+> Note:
+- This is very WIP.
+- Nothing is not finalized.
 
-A very WIP, small interpreted programming language.
+A small interpreted programming language.
 
+<!-- haskell gives okay syntax highlighting -->
+## Examples (Working)
 
-## Examples (In progress)
+- Sum till `n`
+```haskell
+let s = n -> {
+  let x = 0
+  loop {
+    if (n == 0) 
+      then { return x }
+      else {
+        x = x + n
+        n = n - 1
+      }
+  }
+}
+print (s 20)
 
+let s = n -> {
+    if (n == 0)
+      then (return 0)
+      else (return (n + (s (n - 1))))
+}
+print (s 20)
+```
+- Factorial
+```haskell
+let f = n -> {
+  if (n == 0)
+    then (return 1)
+    else (return (n * (f (n - 1))))
+}
+print (f 20)
+```
+
+## Examples (Thought Experiment)
+
+- Basic syntax
 ```haskell
 let x = 1
 
@@ -23,6 +61,7 @@ let factorial n = {
 }
 ```
 
+- A simple program using Server(Actor) based concurrency model.
 ```haskell
 server Downloader {
   .init -> {
