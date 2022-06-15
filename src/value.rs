@@ -70,7 +70,7 @@ impl fmt::Display for Value {
             Value::Str(x) => write!(f, "{}", x),
             Value::Closure(_) => write!(f, "Closure"),
             Value::Function(_) => write!(f, "Function"),
-            Value::HeapedData(_) => write!(f, "Heaped"),
+            Value::HeapedData(x) => write!(f, "{}", x.borrow()),
             Value::Native(x) => write!(f, "Native({})", x),
         }
     }

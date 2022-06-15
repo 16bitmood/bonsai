@@ -1,0 +1,14 @@
+let cons = x y -> (return (f -> return f x y))
+let fst = p -> return (p (x y -> return x))
+let snd = p -> return (p (x y -> return y))
+print "Making Pair"
+let p = cons 1 "Second"
+print "First element"
+print (fst p)
+print "Second element"
+print (snd p)
+print "Time taken for fib 20"
+let start = time 0
+let f = n -> if (n == 0) then (return 1) else (if (n == 1) then (return 1) else (return (f (n-1) + f (n-2))))
+print (f 20)
+print (time 1 - start)

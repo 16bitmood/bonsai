@@ -32,7 +32,7 @@ impl CCtx {
 pub struct Compiler {
     pub ctxs: Vec<CCtx>,
     current: usize,
-    dbg: bool
+    dbg: bool,
 }
 
 fn try_arithmetic_op(x: &Core) -> Option<Op> {
@@ -54,7 +54,7 @@ impl Compiler {
         Compiler {
             ctxs: vec![CCtx::new()],
             current: 0,
-            dbg
+            dbg,
         }
     }
 
@@ -144,7 +144,7 @@ impl Compiler {
             if x.1 <= self.ctxs[self.current].scope_depth {
                 break;
             }
-            self.add_byte(Op::Pop as u8);
+            // self.add_byte(Op::Pop as u8);
             self.ctxs[self.current].locals.pop();
         }
     }
@@ -175,11 +175,12 @@ impl Compiler {
         }
     }
 
-    pub fn compile(&mut self, expr: &Core) {
+    pub fn compile(&mut self, expr: &Core) -> bool {
         match expr {
             Core::Lit(x) => {
                 let idx = self.add_constant(x.clone()) as u8;
                 self.add_bytes(Op::LoadConstant as u8, idx);
+                true
             }
 
             Core::Lambda(args, body) => {
@@ -194,6 +195,7 @@ impl Compiler {
                         self.define_var(arg);
                     }
                     self.compile(body);
+                    self.add_byte(Op::Return as u8);
                     self.done();
 
                     self.current -= 1;
@@ -218,6 +220,7 @@ impl Compiler {
                         }
                     }
                 }
+                true
             }
 
             Core::Call(name, args) => {
@@ -231,11 +234,13 @@ impl Compiler {
                     self.compile(name);
                     self.add_bytes(Op::Call as u8, args.len() as u8);
                 }
+                true
             }
 
             Core::Return(expr) => {
                 self.compile(expr);
                 self.add_byte(Op::Return as u8);
+                false
             }
 
             // Variable Access
@@ -243,6 +248,7 @@ impl Compiler {
                 self.declare_var(name);
                 self.compile(value);
                 self.define_var(name);
+                false
             }
 
             Core::Get(name) => {
@@ -254,6 +260,7 @@ impl Compiler {
                     let idx = self.add_constant(Value::Str(name.clone())) as u8;
                     self.add_bytes(Op::GetGlobal as u8, idx as u8);
                 }
+                true
             }
 
             Core::Set(name, value) => {
@@ -268,20 +275,19 @@ impl Compiler {
                 } else {
                     panic!("Global not defined")
                 }
+                false
             }
 
             Core::Block(exprs) => {
                 self.begin_scope();
 
-                for expr in exprs.iter() {
-                    self.compile(expr);
+                for (i, expr) in exprs.iter().enumerate() {
+                    if self.compile(expr) && !(i == exprs.len() - 1) {
+                        self.add_byte(Op::Pop as u8);
+                    }
                 }
-                // for (i, expr) in exprs.iter().enumerate() {
-                //     if self.compile(expr) && !(i == exprs.len() - 1) {
-                //         // self.add_byte(Op::Pop as u8);
-                //     }
-                // }
                 self.end_scope();
+                true
             }
 
             Core::If(condition, on_true, on_false) => {
@@ -313,6 +319,7 @@ impl Compiler {
                     .function
                     .chunk
                     .write_byte_double(then_end_jump_idx + 1, k);
+                true
             }
 
             Core::Loop(expr) => {
@@ -348,6 +355,7 @@ impl Compiler {
                         .chunk
                         .write_byte_double(break_jump_idx + 1, loop_exit_idx);
                 }
+                true
             }
 
             Core::Continue => {
@@ -356,6 +364,7 @@ impl Compiler {
                 self.add_bytes(0xff, 0xff);
                 let k = self.ctxs[self.current].continues.len() - 1;
                 self.ctxs[self.current].continues[k].push(continue_jump_idx);
+                false
             }
 
             Core::Break => {
@@ -364,17 +373,21 @@ impl Compiler {
                 self.add_bytes(0xff, 0xff);
                 let k = self.ctxs[self.current].breaks.len() - 1;
                 self.ctxs[self.current].breaks[k].push(break_jump_idx);
+                false
             }
         }
     }
 
     pub fn done(&mut self) -> Function {
-        self.compile(&Core::Lit(Value::None));
-        self.add_byte(Op::Return as u8);
+        if *self.ctxs[self.current].function.chunk.code.last().unwrap() != (Op::Return as u8) {
+            self.compile(&Core::Lit(Value::None));
+            self.add_byte(Op::Return as u8);
+        }
 
         if self.dbg {
             self.ctxs[self.current].function.chunk.disassemble();
         }
+
         self.ctxs[0].function.clone()
     }
 }

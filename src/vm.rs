@@ -40,11 +40,14 @@ impl VM<'_> {
     pub fn new(c: Closure, natives: &FFI) -> VM {
         // TODO: Make call-stack static.
         let initial_frame: CallFrame = CallFrame::new(c, 0);
+        let mut frames = Vec::with_capacity(1024);
+        let stack = Vec::with_capacity(1024);
+        frames.push(initial_frame);
         let vm = VM {
-            frames: vec![initial_frame],
+            frames: frames,
             ffi: natives,
             current_frame: 0,
-            stack: vec![],
+            stack: stack,
             globals: HashMap::new(),
         };
         vm
@@ -119,7 +122,8 @@ impl VM<'_> {
                 .len()
         {
             let ip = self.get_ip();
-            if dbg { // Debug Info
+            if dbg {
+                // Debug Info
                 println!("-");
                 print!("Stack {}: [ ", self.frames[self.current_frame].stack_start);
                 for (i, x) in self.stack.iter().enumerate() {
@@ -257,22 +261,6 @@ impl VM<'_> {
                     self.offset_ip(1);
                 }
 
-                Op::SetUpvalue => {
-                    let idx = self.read_byte(ip + 1) as usize;
-                    self.offset_ip(2);
-                    let upvalues = self.frames[self.current_frame].closure.upvalues.borrow();
-                    let mut up_ref = upvalues[idx].borrow_mut();
-                    *up_ref = self.stack.last().unwrap().clone();
-                }
-
-                Op::GetUpvalue => {
-                    let idx = self.read_byte(ip + 1) as usize;
-                    self.stack.push(Value::HeapedData(Rc::clone(
-                        &self.frames[self.current_frame].closure.upvalues.borrow()[idx],
-                    )));
-                    self.offset_ip(2);
-                }
-
                 // 2-byte Instructions
                 Op::LoadConstant => {
                     let idx = self.read_byte(ip + 1);
@@ -319,6 +307,22 @@ impl VM<'_> {
                     let idx = self.read_byte(ip + 1) as usize;
                     self.stack
                         .push(self.stack[self.stack_start() + idx].clone());
+                    self.offset_ip(2);
+                }
+
+                Op::SetUpvalue => {
+                    let idx = self.read_byte(ip + 1) as usize;
+                    self.offset_ip(2);
+                    let upvalues = self.frames[self.current_frame].closure.upvalues.borrow();
+                    let mut up_ref = upvalues[idx].borrow_mut();
+                    *up_ref = self.stack.pop().unwrap().clone();
+                }
+
+                Op::GetUpvalue => {
+                    let idx = self.read_byte(ip + 1) as usize;
+                    self.stack.push(Value::HeapedData(Rc::clone(
+                        &self.frames[self.current_frame].closure.upvalues.borrow()[idx],
+                    )));
                     self.offset_ip(2);
                 }
 

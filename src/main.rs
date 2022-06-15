@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
+use std::time::{SystemTime, UNIX_EPOCH};
+use std::{env, fs};
 
 mod common;
 mod compiler;
@@ -20,10 +22,9 @@ use crate::parser::{
 use crate::value::{Closure, Function, Value};
 use crate::vm::VM;
 
-fn repl(ctx: ParserContext, ffi: FFI) {
+fn repl(ctx: &ParserContext, ffi: &FFI, dbg: bool) {
     let stdin = io::stdin();
     loop {
-        let dbg = true;
         let line = {
             print!(">> ");
             io::stdout().flush().unwrap();
@@ -31,30 +32,38 @@ fn repl(ctx: ParserContext, ffi: FFI) {
             iter.next().unwrap().unwrap()
         };
 
-        let ts = lex(line);
-        if dbg {
-            println!("Tokens: {:?}", ts);
-        }
-
-        let mut lower_parser = LowerParser::new(ts);
-        let expr = lower_parser.parse();
-        if dbg {
-            println!("Low Parse: {:?}", expr);
-        }
-
-        let mut higher_parser = HigherParser::new(vec![expr], &ctx);
-        let core_expr = higher_parser.parse();
-        if dbg {
-            println!("High Parse: {:?}", core_expr);
-        }
-
-        let mut cc = Compiler::new(dbg);
-        cc.compile(&core_expr);
-        let f = cc.ctxs[0].function.clone();
-
-        let mut vm = VM::new(Closure::new(f), &ffi);
-        vm.run(dbg);
+        run("".to_string(), line, &ctx, &ffi, dbg);
     }
+}
+
+fn run(fname: String, content: String, ctx: &ParserContext, ffi: &FFI, dbg: bool) {
+    if fname.len() > 0 {
+        println!("Running {}", fname);
+        println!("---");
+    }
+
+    let ts = lex(content);
+    if dbg {
+        println!("Tokens: {:?}", ts);
+    }
+    let mut lower_parser = LowerParser::new(ts);
+    let expr = lower_parser.parse();
+    if dbg {
+        println!("Low Parse: {:?}", expr);
+    }
+
+    let mut higher_parser = HigherParser::new(vec![expr], &ctx);
+    let core_expr = higher_parser.parse();
+    if dbg {
+        println!("High Parse: {:?}", core_expr);
+    }
+
+    let mut cc = Compiler::new(dbg);
+    cc.compile(&core_expr);
+    let f = cc.ctxs[0].function.clone();
+
+    let mut vm = VM::new(Closure::new(f), &ffi);
+    vm.run(dbg);
 }
 
 fn main() {
@@ -62,16 +71,27 @@ fn main() {
     ffi.insert(
         "print".to_string(),
         Box::new(|x| {
-            println!("{:?}", x);
+            println!("{}", x);
             Value::Bool(false)
         }),
     );
 
     ffi.insert(
         "exit".to_string(),
-        Box::new(|x| {
-            println!("exiting {}", x);
+        Box::new(|_| {
+            println!("exiting");
             std::process::exit(0);
+        }),
+    );
+
+    ffi.insert(
+        "time".to_string(),
+        Box::new(|_| {
+            let start = SystemTime::now();
+            let since_the_epoch = start
+                .duration_since(UNIX_EPOCH)
+                .expect("Time went backwards");
+            Value::Float((since_the_epoch.as_millis() as f64) * 0.001)
         }),
     );
 
@@ -135,7 +155,9 @@ fn main() {
                     _ => todo!(),
                 })
                 .collect(),
-            Box::new(HigherParser::new(body.clone(), ctx).parse()),
+            Box::new(Core::Block(vec![
+                HigherParser::new(body.clone(), ctx).parse()
+            ])),
         )
     });
 
@@ -168,7 +190,23 @@ fn main() {
 
     let ctx = ParserContext::new(&infix_ops, &infix_macros, &prefix_macros);
 
-    repl(ctx, ffi);
+    let mut files = vec![];
+    let mut dbg = false;
+    for x in env::args().skip(1) {
+        if x == "-d".to_string() || x == "--debug".to_string() {
+            dbg = true;
+        } else {
+            files.push((x.clone(), fs::read_to_string(x).expect("can't read file.")));
+        }
+    }
+
+    if files.len() == 0 {
+        repl(&ctx, &ffi, dbg);
+    } else {
+        for (name, content) in files {
+            run(name, content, &ctx, &ffi, dbg)
+        }
+    }
 
     // Sum till n
     // let f = n -> {let s = 0; loop {if (n == 0) then (return s) else {s = s + n; n = n - 1}}}; print (f 20);
