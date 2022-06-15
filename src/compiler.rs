@@ -32,6 +32,7 @@ impl CCtx {
 pub struct Compiler {
     pub ctxs: Vec<CCtx>,
     current: usize,
+    dbg: bool
 }
 
 fn try_arithmetic_op(x: &Core) -> Option<Op> {
@@ -49,10 +50,11 @@ fn try_arithmetic_op(x: &Core) -> Option<Op> {
 }
 
 impl Compiler {
-    pub fn new() -> Compiler {
+    pub fn new(dbg: bool) -> Compiler {
         Compiler {
             ctxs: vec![CCtx::new()],
             current: 0,
+            dbg
         }
     }
 
@@ -73,12 +75,10 @@ impl Compiler {
     }
 
     fn resolve_local(&self, name: &String, ctx_i: usize) -> Option<usize> {
-        println!("Trying to resolve {}", name);
         let locals = &self.ctxs[ctx_i].locals;
         for i in (0..locals.len()).rev() {
             let (n, _, _) = &locals[i];
             if n == name {
-                println!("Resolved! {}", name);
                 return Some(i);
             }
         }
@@ -202,8 +202,6 @@ impl Compiler {
 
                 let function = sub_ctx.function;
                 let upvalues = sub_ctx.upvalues;
-
-                function.chunk.disassemble();
 
                 let f = Value::Function(function);
                 let idx = self.add_constant(f) as u8;
@@ -373,6 +371,10 @@ impl Compiler {
     pub fn done(&mut self) -> Function {
         self.compile(&Core::Lit(Value::None));
         self.add_byte(Op::Return as u8);
+
+        if self.dbg {
+            self.ctxs[self.current].function.chunk.disassemble();
+        }
         self.ctxs[0].function.clone()
     }
 }

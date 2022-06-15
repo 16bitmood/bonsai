@@ -109,7 +109,7 @@ impl VM<'_> {
         }
     }
 
-    pub fn run(&mut self) -> VMResult {
+    pub fn run(&mut self, dbg: bool) -> VMResult {
         while self.get_ip()
             < self.frames[self.current_frame]
                 .closure
@@ -119,11 +119,14 @@ impl VM<'_> {
                 .len()
         {
             let ip = self.get_ip();
-            { // Debug Info
+            if dbg { // Debug Info
                 println!("-");
-                print!("Stack {}: [", self.frames[self.current_frame].stack_start);
-                for x in self.stack.iter() {
-                    print!("{} ", x)
+                print!("Stack {}: [ ", self.frames[self.current_frame].stack_start);
+                for (i, x) in self.stack.iter().enumerate() {
+                    print!("{}", x);
+                    if i != self.stack.len() - 1 {
+                        print!(", ");
+                    }
                 }
                 println!(" ]");
                 println!(

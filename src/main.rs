@@ -23,6 +23,7 @@ use crate::vm::VM;
 fn repl(ctx: ParserContext, ffi: FFI) {
     let stdin = io::stdin();
     loop {
+        let dbg = true;
         let line = {
             print!(">> ");
             io::stdout().flush().unwrap();
@@ -31,23 +32,28 @@ fn repl(ctx: ParserContext, ffi: FFI) {
         };
 
         let ts = lex(line);
-        println!("Tokens: {:?}", ts);
+        if dbg {
+            println!("Tokens: {:?}", ts);
+        }
 
         let mut lower_parser = LowerParser::new(ts);
         let expr = lower_parser.parse();
-        println!("Low Parse: {:?}", expr);
+        if dbg {
+            println!("Low Parse: {:?}", expr);
+        }
 
         let mut higher_parser = HigherParser::new(vec![expr], &ctx);
         let core_expr = higher_parser.parse();
-        println!("High Parse: {:?}", core_expr);
+        if dbg {
+            println!("High Parse: {:?}", core_expr);
+        }
 
-        let mut cc = Compiler::new();
+        let mut cc = Compiler::new(dbg);
         cc.compile(&core_expr);
         let f = cc.ctxs[0].function.clone();
-        f.chunk.disassemble();
 
         let mut vm = VM::new(Closure::new(f), &ffi);
-        vm.run();
+        vm.run(dbg);
     }
 }
 
@@ -169,4 +175,8 @@ fn main() {
     // let s = n -> if (n == 0) then (return 0) else (return (n + (s (n - 1)))); print (s 20);
     // Factorial
     // let f = n -> if (n == 0) then (return 1) else (return (n * (f (n - 1)))); print (f 20);
+    // fibonacci
+    // let f = n -> if (n == 0) then (return 1) else (if (n == 1) then (return 1) else (return (f (n-1) + f (n-2)))); print (f 20);
+    // Funcy stuff
+    // let cons = x y -> (return (f -> (return (f x y)))); print ((cons 1 2) (x y -> return x));
 }
